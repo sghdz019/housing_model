@@ -1,0 +1,40 @@
+---
+title: "housing_model"
+author: "Sarai Saenz & Sofia Hernandez"
+date: "2026-04-15"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = TRUE)
+```
+
+## Setup
+
+This is where we will add all our dependencies.
+
+```{r}
+library(mlbench)
+library(AppliedPredictiveModeling)
+library(caret)
+library(randomForest)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(patchwork)
+library(partykit)
+library(Cubist)
+library(gbm)
+```
+
+## Preprocessing
+
+The Housing dataset contains many missing values and categroical variables. Our main task involves imputing or dropping missing values, encoding categroicals
+
+```{r}
+
+```
+
