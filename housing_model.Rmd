@@ -17,24 +17,171 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = TRUE)
 This is where we will add all our dependencies.
 
 ```{r}
-library(mlbench)
-library(AppliedPredictiveModeling)
+
+packages <- c("caret", "ggplot2", "corrplot", "dplyr", "VIM", "e1071")
+installed <- packages %in% rownames(installed.packages())
+if (any(!installed)) install.packages(packages[!installed])
+
 library(caret)
-library(randomForest)
 library(ggplot2)
+library(corrplot)
 library(dplyr)
-library(gridExtra)
-library(patchwork)
-library(partykit)
-library(Cubist)
-library(gbm)
+library(VIM)
+library(e1071)
 ```
 
-## Preprocessing
+## -------- Load and Inspect Data -------- 
 
-The Housing dataset contains many missing values and categroical variables. Our main task involves imputing or dropping missing values, encoding categroicals
+The Housing data set contains many missing values and categorical variables. Our main task involves imputing or dropping missing values, encoding categoricals, and log transforming the target variable SalePrice since it is right skewed.
+
+```{r}
+train <- read.csv("train.csv", stringsAsFactors = FALSE)
+test <- read.csv("test.csv", stringsAsFactors = FALSE)
+
+cat("Train dimensions:", dim(train), "\n")
+cat("Test dimensions:", dim(test), "\n")
+
+# Save the target (Sales Price) and IDs before merging
+train_ids <- train$Id
+test_ids <- test$Id
+sale_price <- train$SalePrice
+
+#Remove ID and target from train set, ID from test
+train$Id <- NULL
+test$Id <- NULL
+train$SalePrice <- NULL
+```
+
+### Merging Train and Test
+Merging allows us to ensure any factor levels or imputed medians are computed on the full data distribution, all train and test columns should match.
+
+```{r}
+# Tag each set so we can come split them later
+train$set <- "train"
+test$set <- "test"
+all_data <- bind_rows(train, test)
+
+cat("Combined dimensions", dim(all_data), "\n")
+
+```
+
+### Inspect Missing Values
+We have some variables such as GarageType that have observations marked as NA. However, that just means there is no garage, not that there is a missing distinction. This means we have got to check the none_cols and zero_cols list against the data description file.
+
+```{r}
+missing_counts <- sort(colSums(is.na(all_data)),decreasing = TRUE)
+
+missing_pct <- missing_counts / nrow(all_data) * 100
+
+missing_df <- data.frame(
+  variable = names(missing_counts),
+  count = missing_counts,
+  percentage = round(missing_pct, 1)
+)
+
+cat("\nTop 40 variables with missing values:\n")
+print(head(missing_df[missing_df$count > 0, ], 40))
+```
+
+So we can see that PoolQC and Misc Feature are missing in almost every row, this isn't an error. That just means that 99% of those houses don't have those items. The columns referring to Garage all have exactly 159 missing values, meaning that 159 houses don't have garages at all. This is similar to the Basement group however there is a slight variation 80 vs 82 that suggests that a rating might have been forgotten. 
+
+### Fix NAs that mean "None"
+Now that we have inspected our None values, we can remove the true NA's and save the "None" values.
+
+```{r}
+none_cols <- c(
+  "Alley", "BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1",
+  "BsmtFinType2", "FireplaceQu", "GarageType", "GarageFinish",
+  "GarageQual", "GarageCond", "PoolQC", "Fence", "MiscFeature",
+  "MasVnrType"
+)
+for (col in none_cols) {
+  if (col %in% names(all_data)) {
+    all_data[[col]][is.na(all_data[[col]])] <- "None"
+  }
+}
+ 
+# Numeric "None" equivalents (e.g. no basement = 0 sq ft)
+zero_cols <- c(
+  "BsmtFinSF1", "BsmtFinSF2", "BsmtUnfSF", "TotalBsmtSF",
+  "BsmtFullBath", "BsmtHalfBath", "GarageYrBlt", "GarageArea",
+  "GarageCars", "MasVnrArea"
+)
+for (col in zero_cols) {
+  if (col %in% names(all_data)) {
+    all_data[[col]][is.na(all_data[[col]])] <- 0
+  }
+}
+
+# Impute Random Categorical Data with the Mode
+cat_cols <- names(all_data)[sapply(all_data, is.character)]
+for (col in cat_cols) {
+  if (any(is.na(all_data[[col]]))) {
+    mode_val <- names(sort(table(all_data[[col]]), decreasing = TRUE))[1]
+    all_data[[col]][is.na(all_data[[col]])] <- mode_val
+  }
+}
+ 
+# Numerics: fill with median
+num_cols <- names(all_data)[sapply(all_data, is.numeric)]
+num_cols <- setdiff(num_cols, "set")
+for (col in num_cols) {
+  if (any(is.na(all_data[[col]]))) {
+    all_data[[col]][is.na(all_data[[col]])] <- median(all_data[[col]], na.rm = TRUE)
+  }
+}
+ 
+cat("\nMissing values remaining:", sum(is.na(all_data[, names(all_data) != "set"])), "\n")
+```
+
+### Feature Engineering
 
 ```{r}
 
+# Temp Data Frame for EDA
+train_analysis <- all_data[all_data$set == "train", ]
+train_analysis$SalePrice <- sale_price
+
+# Identify strongest predictors
+numeric_vars <- sapply(train_analysis, is.numeric)
+cor_matrix <- cor(train_analysis[, numeric_vars], use = "pairwise.complete.obs")
+
+price_correlations <- sort(cor_matrix[,"SalePrice"], decreasing = TRUE)
+print(head(price_correlations, 15))
+```
+
+```{r}
+ggplot(train_analysis, aes(x = as.factor(OverallQual), y = SalePrice)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "Sale Price vs Overall Quality")
+
+ggplot(train_analysis, aes(x = reorder(Neighborhood, SalePrice, FUN = median), y = SalePrice)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Sale Price by Neighborhood (Ordered by Median)")
+```
+
+```{r}
+# --------- Feature Engineering ----------
+
+# Total square footage
+all_data$TotalSF <- all_data$TotalBsmtSF + all_data$X1stFlrSF + all_data$X2ndFlrSF
+ 
+# Total bathrooms
+all_data$TotalBaths <- all_data$FullBath + (0.5 * all_data$HalfBath) +
+                       all_data$BsmtFullBath + (0.5 * all_data$BsmtHalfBath)
+ 
+# Age
+all_data$HouseAge   <- all_data$YrSold - all_data$YearBuilt
+all_data$RemodelAge <- all_data$YrSold - all_data$YearRemodAdd
+ 
+# Has features flags
+all_data$HasPool     <- as.integer(all_data$PoolArea > 0)
+all_data$HasGarage   <- as.integer(all_data$GarageArea > 0)
+all_data$HasFireplace<- as.integer(all_data$Fireplaces > 0)
+all_data$HasBasement <- as.integer(all_data$TotalBsmtSF > 0)
+
+# Try Squaring OverallQual for polynomial feature
+all_data$OverallQual_Squared <- all_data$OverallQual^2
 ```
 
