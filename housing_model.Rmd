@@ -185,3 +185,110 @@ all_data$HasBasement <- as.integer(all_data$TotalBsmtSF > 0)
 all_data$OverallQual_Squared <- all_data$OverallQual^2
 ```
 
+### Encoding Oridinal Variables
+Some categories have a specific rank that we need to map to numericals so our models can understand them.
+
+```{r}
+quality_map <- c("None" = 0, "Po" = 1, "Fa" = 2, "TA" = 3, "Gd" = 4, "Ex" = 5)
+
+ordinal_cols <- c(
+  "ExterQual", "ExterCond", "BsmtQual", "BsmtCond",
+  "HeatingQC", "KitchenQual", "FireplaceQu",
+  "GarageQual", "GarageCond", "PoolQC"
+)
+for (col in ordinal_cols){
+  if(col %in% names(all_data)) {
+    all_data[[col]] <- as.integer(quality_map[all_data[[col]]])
+    all_data[[col]][is.na(all_data[[col]])] <- 0 
+  }
+}
+
+```
+
+### Factor Conversion
+For the remaining categories that don't have an order, we can convert them into factors instead of a random string of letters.
+
+```{r}
+cat_cols_remaining <- names(all_data)[sapply(all_data, is.character)]
+cat_cols_remaining <- setdiff(cat_cols_remaining, "set")
+all_data[cat_cols_remaining] <- lapply(all_data[cat_cols_remaining], as.factor)
+```
+
+### Remove NZV Predictors
+
+```{r}
+nzv <- nearZeroVar(all_data[, names(all_data) != "set"], saveMetrics = TRUE)
+nzv_cols <- rownames(nzv[nzv$nzv == TRUE, ])
+
+# 2. Define the "Protected" columns - we can add more or remove as we train the model
+protected_cols <- c("PoolQC", "PoolArea", "HasPool", "BsmtCond", "FireplaceQu", "HasBasement")
+
+nzv_cols_to_remove <- setdiff(nzv_cols, protected_cols)
+
+cat("\nActually removing:", paste(nzv_cols_to_remove, collapse = ", "), "\n")
+cat("Keeping (Protected):", paste(intersect(nzv_cols, protected_cols), collapse = ", "), "\n")
+
+all_data <- all_data[, !(names(all_data) %in% nzv_cols_to_remove)]
+```
+
+### Split Into Train/Test
+
+```{r}
+train_clean <- all_data[all_data$set == "train", ]
+test_clean  <- all_data[all_data$set == "test",  ]
+ 
+train_clean$set <- NULL
+test_clean$set  <- NULL
+ 
+train_clean$SalePrice <- log(sale_price)
+ 
+cat("\nFinal train dimensions:", dim(train_clean), "\n")
+cat("Final test dimensions: ", dim(test_clean),  "\n")
+```
+
+```{r}
+# Distribution of SalePrice
+p1 <- ggplot(train_clean, aes(x = SalePrice)) +
+  geom_histogram(bins = 50, fill = "#1D9E75", color = "white", alpha = 0.85) +
+  labs(title = "Distribution of log(SalePrice)",
+       x = "log(SalePrice)", y = "Count") +
+  theme_minimal()
+print(p1)
+ 
+# Correlation matrix
+num_train <- train_clean[, sapply(train_clean, is.numeric)]
+cor_matrix <- cor(num_train, use = "pairwise.complete.obs")
+top_vars <- names(sort(abs(cor_matrix[, "SalePrice"]), decreasing = TRUE))[1:15]
+corrplot(cor_matrix[top_vars, top_vars],
+         method = "color", type = "upper",
+         tl.cex = 0.7, tl.col = "black",
+         title = "Top 15 correlations with SalePrice",
+         mar = c(0, 0, 2, 0))
+ 
+# SalePrice vs TotalSF
+p2 <- ggplot(train_clean, aes(x = TotalSF, y = SalePrice)) +
+  geom_point(alpha = 0.4, color = "#185FA5") +
+  geom_smooth(method = "lm", color = "#E85D24", se = FALSE) +
+  labs(title = "log(SalePrice) vs Total Square Footage",
+       x = "Total SF", y = "log(SalePrice)") +
+  theme_minimal()
+print(p2)
+```
+
+```{r}
+write.csv(train_clean, "train_clean.csv", row.names = FALSE)
+write.csv(test_clean,  "test_clean.csv",  row.names = FALSE)
+write.csv(data.frame(Id = test_ids), "test_ids.csv", row.names = FALSE)
+ 
+cat("\nPreprocessing complete. Files saved:\n")
+cat("  train_clean.csv\n")
+cat("  test_clean.csv\n")
+cat("  test_ids.csv\n")
+```
+
+## Model Building
+
+```{r}
+
+```
+
