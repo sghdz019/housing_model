@@ -161,6 +161,13 @@ ggplot(train_analysis, aes(x = reorder(Neighborhood, SalePrice, FUN = median), y
   labs(title = "Sale Price by Neighborhood (Ordered by Median)")
 ```
 
+
+```{r}
+grep("Porch", names(all_data), value = TRUE)
+```
+
+
+
 ```{r}
 # --------- Feature Engineering ----------
 
@@ -183,6 +190,29 @@ all_data$HasBasement <- as.integer(all_data$TotalBsmtSF > 0)
 
 # Try Squaring OverallQual for polynomial feature
 all_data$OverallQual_Squared <- all_data$OverallQual^2
+
+#TotalPorchSF
+all_data$TotalPorchSF <- all_data$OpenPorchSF + all_data$EnclosedPorch +
+                         all_data$X3SsnPorch + all_data$ScreenPorch
+
+#TotalHomeQuality
+all_data$TotalHomeQuality <- all_data$OverallQual + all_data$OverallCond
+
+#GarageAge
+all_data$GarageAge <- all_data$YrSold - all_data$GarageYrBlt
+all_data$GarageAge[is.na(all_data$GarageAge)] <- 0
+
+#IsRemodeled
+all_data$IsRemodeled <- ifelse(all_data$YearBuilt == all_data$YearRemodAdd, 0, 1)
+
+#TotalOutsideSF
+
+all_data$TotalOutsideSF <- all_data$WoodDeckSF + all_data$OpenPorchSF +
+                           all_data$EnclosedPorch + all_data$X3SsnPorch +
+                           all_data$ScreenPorch + all_data$PoolArea
+#Qual_x_SF
+all_data$Qual_x_SF <- all_data$OverallQual * all_data$TotalSF
+all_data$Qual_x_Age <- all_data$OverallQual * all_data$HouseAge
 ```
 
 ### Encoding Oridinal Variables
@@ -286,9 +316,165 @@ cat("  test_clean.csv\n")
 cat("  test_ids.csv\n")
 ```
 
+
+## K-Fold Cross Validation (5-Fold)
+
+```{r}
+library(caret)
+
+set.seed(123)
+
+ctrl <- trainControl(
+  method = "cv",
+  number = 5
+)
+```
+
+
 ## Model Building
+
+
+# Baseline Model
+
+```{r}
+#Linear Regression (CV)
+
+lm_cv <- train(
+  SalePrice ~ .,
+  data = train_clean,
+  method = "lm",
+  trControl = ctrl,
+  metric = "RMSE"
+)
+
+lm_cv
+```
+# Ridge Regression
+
+```{r}
+# Ridge Regression (CV)
+
+ridge_cv <- train(
+  SalePrice ~ .,
+  data = train_clean,
+  method = "glmnet",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    alpha = 0,
+    lambda = seq(0.0001, 1, length = 20)
+  ),
+  metric = "RMSE"
+)
+
+ridge_cv
+plot(ridge_cv)
+```
+
+## Lasso Regression
+
 
 ```{r}
 
+## Lasso Regression (CV)
+
+lasso_cv <- train(
+  SalePrice ~ .,
+  data = train_clean,
+  method = "glmnet",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    alpha = 1,
+    lambda = seq(0.0001, 1, length = 20)
+  ),
+  metric = "RMSE"
+)
+
+lasso_cv
+plot(lasso_cv)
 ```
+
+
+## Random Forest (Traget is "SalePrice, Which is continuous.)
+
+```{r}
+## Random Forest (CV)
+
+rf_cv <- train(
+  SalePrice ~ .,
+  data = train_clean,
+  method = "rf",
+  trControl = ctrl,
+  metric = "RMSE",
+  ntree = 200
+)
+
+rf_cv
+plot(rf_cv)
+```
+
+
+## Feature Importance
+
+```{r}
+library(caret)
+
+varImp(rf_cv)
+plot(varImp(rf_cv))
+```
+
+*Note* :
+
+• Qual_x_SF (100) is the most important for prediction the "SalePrice" (Our Traget).
+
+## Predcit test set 
+
+
+```{r}
+## Predict test set (Final Linear Model)
+
+# Fit final linear model on full training data
+final_lm <- lm(SalePrice ~ ., data = train_clean)
+
+# Fix factor levels in test_clean
+for (col in names(train_clean)) {
+  if (is.factor(train_clean[[col]])) {
+    test_clean[[col]] <- factor(as.character(test_clean[[col]]),
+                                levels = levels(train_clean[[col]]))
+  }
+}
+
+final_pred <- predict(final_lm, newdata = test_clean)
+
+final_pred[is.na(final_pred)] <- median(final_pred, na.rm = TRUE)
+
+# Convert back from log scale
+submission <- data.frame(
+  Id = test_ids,
+  SalePrice = exp(final_pred)
+)
+
+nrow(submission)
+sum(is.na(submission$SalePrice))
+head(submission)
+
+write.csv(submission, "submission.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
