@@ -78,21 +78,16 @@ This indicates that house prices are strongly influenced by the combined effect 
 * Feature engineering plays a critical role in improving model performance
 
 ---
-
 ## Project Structure
+
+```
 housing_model/
 │
-│
-├── data/ # dataset files
-│
-│
-├── notebooks/ # R Markdown analysis
-│
-│
-├── outputs/ # model outputs and predictions
-│
-│
+├── data/         # dataset files
+├── notebooks/    # R Markdown analysis
+├── outputs/      # model outputs and predictions
 └── README.md
+```
 
 ---
 
