@@ -80,3 +80,48 @@ This indicates that house prices are strongly influenced by the combined effect 
 ---
 
 ## Project Structure
+housing_model/
+│
+├── data/ # dataset files
+├── notebooks/ # R Markdown analysis
+├── outputs/ # model outputs and predictions
+└── README.md
+
+---
+
+
+## Tools & Technologies
+
+* R (caret, glmnet, randomForest)
+* R Markdown
+* Git & GitHub
+
+---
+
+## How to Use
+
+1. Open the dataset in the data folder  
+2. Run the R Markdown file in notebooks  
+3. Review outputs in the outputs folder  
+
+---
+
+## Conclusion
+
+The results show that feature engineering significantly improves predictive performance. Despite evaluating more complex models, Linear Regression achieved the best generalization performance under cross-validation.
+
+This suggests that the relationship between predictors and house prices is largely linear when meaningful features and interactions are included.
+
+---
+
+## Author
+
+## Author
+
+Siripaiboon Janpetch  
+Sofia Hernandez  
+Sarai Saenz  
+
+Master’s Students in Data Analytics  
+The University of Texas at San Antonio (UTSA)
+
