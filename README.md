@@ -82,11 +82,15 @@ This indicates that house prices are strongly influenced by the combined effect 
 ## Project Structure
 housing_model/
 │
+│
 ├── data/ # dataset files
+│
 │
 ├── notebooks/ # R Markdown analysis
 │
+│
 ├── outputs/ # model outputs and predictions
+│
 │
 └── README.md
 
