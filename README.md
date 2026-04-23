@@ -15,6 +15,8 @@ The project includes:
 * Feature engineering
 * Model development and comparison
 * Cross-validation for performance evaluation
+* Feature importance analysis
+* Final prediction on test dataset
 
 ---
 
