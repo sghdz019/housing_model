@@ -35,8 +35,12 @@ library(e1071)
 The Housing data set contains many missing values and categorical variables. Our main task involves imputing or dropping missing values, encoding categoricals, and log transforming the target variable SalePrice since it is right skewed.
 
 ```{r}
-train <- read.csv("train.csv", stringsAsFactors = FALSE)
-test <- read.csv("test.csv", stringsAsFactors = FALSE)
+data_path <- "S:/HousePricing/housing_model/data"
+
+list.files(data_path)
+
+train <- read.csv(file.path(data_path, "train.csv"), stringsAsFactors = FALSE)
+test  <- read.csv(file.path(data_path, "test.csv"), stringsAsFactors = FALSE)
 
 cat("Train dimensions:", dim(train), "\n")
 cat("Test dimensions:", dim(test), "\n")
@@ -415,11 +419,29 @@ plot(rf_cv)
 
 ## Feature Importance
 
+
+
 ```{r}
 library(caret)
 
-varImp(rf_cv)
-plot(varImp(rf_cv))
+imp <- varImp(rf_cv)
+imp_df <- as.data.frame(imp$importance)
+
+# keep row names as feature names
+imp_df$Feature <- rownames(imp_df)
+
+# sort top 15
+top_imp <- imp_df[order(imp_df$Overall, decreasing = TRUE), ]
+top_imp <- head(top_imp, 15)
+
+par(mar = c(5, 10, 4, 2))
+barplot(top_imp$Overall,
+        names.arg = top_imp$Feature,
+        horiz = TRUE,
+        las = 1,
+        cex.names = 0.8,
+        xlab = "Importance",
+        main = "Top 15 Feature Importance")
 ```
 
 *Note* :
