@@ -121,9 +121,7 @@ This suggests that the relationship between predictors and house prices is large
 ## Author
 
 Sarai Saenz
-
 Siripaiboon Janpetch 
-
 Sofia Hernandez   
 
 Master’s Students in Data Analytics  
