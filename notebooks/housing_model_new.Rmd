@@ -1,6 +1,6 @@
 ---
 title: "housing_model"
-author: "Sarai Saenz & Sofia Hernandez"
+author: "Sarai Saenz, Sofia Hernandez, Siripaiboon Janpetch"
 date: "2026-04-15"
 output: 
   html_document:
@@ -28,14 +28,17 @@ library(corrplot)
 library(dplyr)
 library(VIM)
 library(e1071)
+library(xgboost)
+library(gridExtra)
+library(patchwork)
 ```
 
-## -------- Load and Inspect Data -------- 
+## Load and Inspect Data
 
 The Housing data set contains many missing values and categorical variables. Our main task involves imputing or dropping missing values, encoding categoricals, and log transforming the target variable SalePrice since it is right skewed.
 
 ```{r}
-data_path <- "S:/HousePricing/housing_model/data"
+data_path <- "C:/Users/Owner/Desktop/Predictive Modeling/housing_model/data"
 
 list.files(data_path)
 
@@ -330,15 +333,25 @@ set.seed(123)
 
 ctrl <- trainControl(
   method = "cv",
-  number = 5
+  number = 5,
+  verboseIter = TRUE,
+  savePredictions = "final"
 )
 ```
 
 
 ## Model Building
 
+```{r}
+print_results <- function(model, name) {
+  rmse <- min(model$results$RMSE)
+  r2   <- model$results$Rsquared[which.min(model$results$RMSE)]
+  cat(sprintf("\n%-20s | CV RMSE: %.5f | R²: %.4f\n", name, rmse, r2))
+}
+```
 
-# Baseline Model
+
+### Linear Regression
 
 ```{r}
 #Linear Regression (CV)
@@ -353,7 +366,7 @@ lm_cv <- train(
 
 lm_cv
 ```
-# Ridge Regression
+### Ridge Regression
 
 ```{r}
 # Ridge Regression (CV)
@@ -372,9 +385,10 @@ ridge_cv <- train(
 
 ridge_cv
 plot(ridge_cv)
+print_results(ridge_cv, "Ridge")
 ```
 
-## Lasso Regression
+### Lasso Regression
 
 
 ```{r}
@@ -395,10 +409,12 @@ lasso_cv <- train(
 
 lasso_cv
 plot(lasso_cv)
+print_results(lasso_cv, "Lasso")
 ```
 
 
-## Random Forest (Traget is "SalePrice, Which is continuous.)
+### Random Forest 
+(Target is "SalePrice, which is continuous.)
 
 ```{r}
 ## Random Forest (CV)
@@ -414,15 +430,40 @@ rf_cv <- train(
 
 rf_cv
 plot(rf_cv)
+print_results(rf_cv, "Random Forest")
 ```
 
+### Gradient Boosting
 
-## Feature Importance
+```{r}
+# Gradient Boost
+set.seed(42)
+gbm_grid <- expand.grid(
+  n.trees           = c(500, 1000),
+  interaction.depth = c(3, 5),
+  shrinkage         = 0.05,
+  n.minobsinnode    = 10
+)
+gbm_model <- train(
+  SalePrice ~ .,
+  data = train_clean,
+  method    = "gbm",
+  trControl = ctrl,
+  tuneGrid  = gbm_grid,
+  verbose   = FALSE
+)
+print_results(gbm_model, "Gradient Boosting")
+cat("Best tune:\n"); print(gbm_model$bestTune)
+```
+## Evaluation
+Evaluate based off of RMSE. Because our data is continuous, we cannot fit an ROC curve. 
 
-
+### Feature Importance (FI)
 
 ```{r}
 library(caret)
+
+par(mfrow = c(1,2))
 
 imp <- varImp(rf_cv)
 imp_df <- as.data.frame(imp$importance)
@@ -441,54 +482,144 @@ barplot(top_imp$Overall,
         las = 1,
         cex.names = 0.8,
         xlab = "Importance",
-        main = "Top 15 Feature Importance")
+        main = "RF - Top 15 FI")
+
+library(gbm)
+gbm_imp         <- varImp(gbm_model)$importance
+gbm_imp$Feature <- rownames(gbm_imp)
+gbm_top         <- gbm_imp[order(gbm_imp$Overall, decreasing = TRUE), ]
+gbm_top         <- head(gbm_top, 15)
+
+par(mar = c(5, 10, 4, 2))
+barplot(gbm_top$Overall,
+        names.arg = gbm_top$Feature,
+        horiz     = TRUE,
+        las       = 1,
+        cex.names = 0.8,
+        xlab      = "Importance",
+        main      = "GBM - Top 15 FI")
+
 ```
 
 *Note* :
 
-• Qual_x_SF (100) is the most important for prediction the "SalePrice" (Our Traget).
+• Qual_x_SF (100) is the most important for prediction the "SalePrice" (Our Traget) in both the RF and GDM Models.
 
-## Predcit test set 
+### RMSE Comparison
+
+```{r}
+cat("\n============ MODEL COMPARISON ============\n")
+results <- resamples(list(
+  Ridge  = ridge_cv,
+  Lasso  = lasso_cv,
+  RF = rf_cv,
+  Linear = lm_cv,
+  GBM = gbm_model
+))
+summary(results)
+ 
+# Plot comparison
+comparison_plot <- dotplot(results, metric = "RMSE",
+                           main = "5-Fold CV RMSE Comparison")
+print(comparison_plot)
+```
+
+### Final Ranking
+
+```{r}
+model_summary <- data.frame(
+  Model = c("Ridge", "Lasso", "Random Forest", "Linear Regression", "GBM"),
+  CV_RMSE = c(
+    min(ridge_cv$results$RMSE),
+    min(lasso_cv$results$RMSE),
+    min(rf_cv$results$RMSE),
+    min(lm_cv$results$RMSE),
+    min(gbm_model$results$RMSE)
+  )
+) %>% arrange(CV_RMSE)
+model_summary$CV_RMSE <- round(model_summary$CV_RMSE, 5)
+cat("\nFinal ranking:\n")
+print(model_summary)
+```
+
+### Predicted vs Actual
+
+```{r}
+par(mfrow = c(2,3))
+pred_train <- predict(gbm_model, newdata = train_clean)
+plot(train_clean$SalePrice, pred_train,
+     xlab = "Actual log(SalePrice)",
+     ylab = "Predicted log(SalePrice)",
+     main = "Predicted vs Actual (GBM)",
+     pch  = 16, col = adjustcolor("steelblue", alpha = 0.4))
+abline(0, 1, col = "red", lwd = 2)
+
+pred_train <- predict(rf_cv, newdata = train_clean)
+plot(train_clean$SalePrice, pred_train,
+     xlab = "Actual log(SalePrice)",
+     ylab = "Predicted log(SalePrice)",
+     main = "Predicted vs Actual (RF)",
+     pch  = 16, col = adjustcolor("steelblue", alpha = 0.4))
+abline(0, 1, col = "red", lwd = 2)
+
+pred_train <- predict(lasso_cv, newdata = train_clean)
+plot(train_clean$SalePrice, pred_train,
+     xlab = "Actual log(SalePrice)",
+     ylab = "Predicted log(SalePrice)",
+     main = "Predicted vs Actual (Lasso)",
+     pch  = 16, col = adjustcolor("steelblue", alpha = 0.4))
+abline(0, 1, col = "red", lwd = 2)
+
+pred_train <- predict(ridge_cv, newdata = train_clean)
+plot(train_clean$SalePrice, pred_train,
+     xlab = "Actual log(SalePrice)",
+     ylab = "Predicted log(SalePrice)",
+     main = "Predicted vs Actual (Ridge)",
+     pch  = 16, col = adjustcolor("steelblue", alpha = 0.4))
+abline(0, 1, col = "red", lwd = 2)
+
+pred_train <- predict(lm_cv, newdata = train_clean)
+plot(train_clean$SalePrice, pred_train,
+     xlab = "Actual log(SalePrice)",
+     ylab = "Predicted log(SalePrice)",
+     main = "Predicted vs Actual (LR)",
+     pch  = 16, col = adjustcolor("steelblue", alpha = 0.4))
+abline(0, 1, col = "red", lwd = 2)
+
+```
+### Residuals
+
+```{r}
+residuals <- train_clean$SalePrice - pred_train
+p2 <- plot(pred_train, residuals,
+     xlab = "Fitted Values",
+     ylab = "Residuals",
+     main = "Residual Plot (GBM)",
+     pch  = 16, col = adjustcolor("steelblue", alpha = 0.4))
+abline(h = 0, col = "red", lwd = 2)
+
+```
+
+
+## Kaggle Submission 
 
 
 ```{r}
-## Predict test set (Final Linear Model)
-
-# Fit final linear model on full training data
-final_lm <- lm(SalePrice ~ ., data = train_clean)
-
-# Fix factor levels in test_clean
-for (col in names(train_clean)) {
-  if (is.factor(train_clean[[col]])) {
-    test_clean[[col]] <- factor(as.character(test_clean[[col]]),
-                                levels = levels(train_clean[[col]]))
-  }
-}
-
-final_pred <- predict(final_lm, newdata = test_clean)
-
+## Predict Test Set (GBM)
+final_pred <- predict(gbm_model, newdata = test_clean)
 final_pred[is.na(final_pred)] <- median(final_pred, na.rm = TRUE)
 
 # Convert back from log scale
 submission <- data.frame(
-  Id = test_ids,
+  Id        = test_ids,
   SalePrice = exp(final_pred)
 )
 
 nrow(submission)
 sum(is.na(submission$SalePrice))
 head(submission)
-
 write.csv(submission, "submission.csv", row.names = FALSE)
 ```
-
-
-
-
-
-
-
-
 
 
 
